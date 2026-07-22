@@ -1,0 +1,17 @@
+blank_line_after_tag = "extends,endblock"
+blank_line_before_tag = "load,extends,include"
+format_css = true
+format_js = true
+indent = 4
+max_attribute_length = 1000
+max_blank_lines = 0
+max_line_length = 145
+preserve_blank_lines = true
+profile = "jinja"
+use_gitignore = true
+
+[js]
+indent_size = 4
+
+[css]
+indent_size = 4
