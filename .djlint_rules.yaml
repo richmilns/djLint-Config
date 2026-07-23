@@ -1,0 +1,8 @@
+- rule:
+    name: V001
+    message: Volt string literals should use single quotes.
+    default: true
+    flags: re.DOTALL
+    patterns:
+      - |-
+        (?:\{\{(?:(?:'(?:\\.|[^'\\])*')|[^'"}])*"(?:\\.|[^"\\])*"(?:(?!\}\}).)*\}\}|\{%(?:(?:'(?:\\.|[^'\\])*')|[^'"}])*"(?:\\.|[^"\\])*"(?:(?!%\}).)*%\})

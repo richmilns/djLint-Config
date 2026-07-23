@@ -1,0 +1,212 @@
+#!/opt/homebrew/bin/python3
+"""Normalise string literals inside Volt expressions to single quotes."""
+
+from __future__ import annotations
+
+import argparse
+import sys
+from pathlib import Path
+
+
+VOLT_DELIMITERS = {
+    "{{": "}}",
+    "{%": "%}",
+}
+
+
+def single_quote_string(value: str) -> str:
+    """Convert the contents of a double-quoted Volt string."""
+    converted: list[str] = []
+    index = 0
+
+    while index < len(value):
+        character = value[index]
+
+        if character == "\\" and index + 1 < len(value):
+            escaped = value[index + 1]
+
+            if escaped == '"':
+                converted.append('"')
+            else:
+                converted.extend(("\\", escaped))
+
+            index += 2
+            continue
+
+        if character == "'":
+            converted.append("\\'")
+        else:
+            converted.append(character)
+
+        index += 1
+
+    return "'" + "".join(converted) + "'"
+
+
+def normalise_block(block: str) -> str:
+    """Normalise double-quoted strings within one Volt block."""
+    converted: list[str] = []
+    index = 0
+
+    while index < len(block):
+        if block[index] == "'":
+            end = index + 1
+
+            while end < len(block):
+                if block[end] == "\\":
+                    end += 2
+                    continue
+
+                if block[end] == "'":
+                    end += 1
+                    break
+
+                end += 1
+
+            converted.append(block[index:end])
+            index = end
+            continue
+
+        if block[index] != '"':
+            converted.append(block[index])
+            index += 1
+            continue
+
+        end = index + 1
+
+        while end < len(block):
+            if block[end] == "\\":
+                end += 2
+                continue
+
+            if block[end] == '"':
+                break
+
+            end += 1
+
+        if end >= len(block):
+            converted.append(block[index:])
+            break
+
+        converted.append(single_quote_string(block[index + 1 : end]))
+        index = end + 1
+
+    return "".join(converted)
+
+
+def find_block_end(source: str, start: int, closer: str) -> int:
+    """Find a Volt block closer while ignoring quoted string contents."""
+    quote: str | None = None
+    index = start
+
+    while index < len(source):
+        character = source[index]
+
+        if quote is not None:
+            if character == "\\":
+                index += 2
+                continue
+
+            if character == quote:
+                quote = None
+
+            index += 1
+            continue
+
+        if character in {"'", '"'}:
+            quote = character
+            index += 1
+            continue
+
+        if source.startswith(closer, index):
+            return index
+
+        index += 1
+
+    return -1
+
+
+def normalise_volt(source: str) -> str:
+    """Normalise strings in Volt output and statement delimiters."""
+    converted: list[str] = []
+    index = 0
+
+    while index < len(source):
+        positions = [
+            (source.find(opener, index), opener, closer)
+            for opener, closer in VOLT_DELIMITERS.items()
+        ]
+        positions = [position for position in positions if position[0] >= 0]
+
+        if not positions:
+            converted.append(source[index:])
+            break
+
+        start, opener, closer = min(positions)
+        converted.append(source[index : start + len(opener)])
+        block_start = start + len(opener)
+        block_end = find_block_end(source, block_start, closer)
+
+        if block_end < 0:
+            converted.append(source[block_start:])
+            break
+
+        converted.append(normalise_block(source[block_start:block_end]))
+        converted.append(closer)
+        index = block_end + len(closer)
+
+    return "".join(converted)
+
+
+def process_path(path: Path, check: bool) -> bool:
+    """Normalise one file and return whether it needed changes."""
+    source = path.read_bytes().decode("utf-8")
+    converted = normalise_volt(source)
+
+    if converted == source:
+        return False
+
+    if not check:
+        path.write_bytes(converted.encode("utf-8"))
+
+    return True
+
+
+def main() -> int:
+    """Run the command-line fixer."""
+    parser = argparse.ArgumentParser(
+        description="Normalise double-quoted strings inside Volt expressions.",
+    )
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="report files requiring changes without rewriting them",
+    )
+    parser.add_argument("files", nargs="*", help="Volt files, or stdin when omitted")
+    arguments = parser.parse_args()
+
+    if not arguments.files:
+        source = sys.stdin.read()
+        converted = normalise_volt(source)
+
+        if arguments.check:
+            return int(converted != source)
+
+        sys.stdout.write(converted)
+        return 0
+
+    changed = False
+
+    for filename in arguments.files:
+        path = Path(filename)
+
+        if process_path(path, arguments.check):
+            changed = True
+            action = "needs normalising" if arguments.check else "normalised"
+            print(f"{path}: {action}", file=sys.stderr)
+
+    return int(arguments.check and changed)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
